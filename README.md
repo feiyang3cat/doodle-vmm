@@ -16,44 +16,186 @@ TinyVMM is the simplest possible hypervisor that actually runs guest code. It de
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                          macOS (Host)                           │
-│                                                                 │
-│  ┌───────────────────────────────┐                              │
-│  │   TinyVMM (User Process)      │    Hypervisor.framework      │
-│  │                               │◄────────────────────────────►│
-│  │  ┌───────────┐ ┌───────────┐  │         (API calls)          │
-│  │  │  VM Loop  │ │ Guest Mem │  │                              │
-│  │  │           │ │ (1MB)     │  │                              │
-│  │  │ -Run vCPU │ │┌─────────┐│  │                              │
-│  │  │ -Handle   │ ││Bare     ││  │                              │
-│  │  │  exits    │ ││Metal    ││  │                              │
-│  │  │ -Hyper-   │ ││Code     ││  │                              │
-│  │  │  calls    │ ││(248B)   ││  │                              │
-│  │  └───────────┘ │└─────────┘│  │                              │
-│  │                └───────────┘  │                              │
-│  └───────────────────────────────┘                              │
-│                                                                 │
-├─────────────────────────────────────────────────────────────────┤
-│                         macOS Kernel                            │
-│                   (Hypervisor support at EL2)                   │
-└─────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                    Apple Silicon (M1/M2/M3/M4)                  │
-│                   Hardware Virtualization (VHE)                 │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              macOS (Host)                                    │
+│                                                                              │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │                        User Space                                       │ │
+│  │                                                                         │ │
+│  │  ┌─────────────────────────┐      ┌─────────────────────────┐           │ │
+│  │  │   TinyVMM Process #1    │      │   TinyVMM Process #2    │           │ │
+│  │  │                         │      │                         │           │ │
+│  │  │ ┌───────┐ ┌───────────┐ │      │ ┌───────┐ ┌───────────┐ │           │ │
+│  │  │ │VM Loop│ │ Guest Mem │ │      │ │VM Loop│ │ Guest Mem │ │           │ │
+│  │  │ │       │ │  (1MB)    │ │      │ │       │ │  (1MB)    │ │           │ │
+│  │  │ │-Run   │ │ ┌───────┐ │ │      │ │-Run   │ │ ┌───────┐ │ │           │ │
+│  │  │ │ vCPU  │ │ │Bare   │ │ │      │ │ vCPU  │ │ │Bare   │ │ │           │ │
+│  │  │ │-Handle│ │ │Metal  │ │ │      │ │-Handle│ │ │Metal  │ │ │           │ │
+│  │  │ │ exits │ │ │Code   │ │ │      │ │ exits │ │ │Code   │ │ │           │ │
+│  │  │ └───────┘ │ └───────┘ │ │      │ └───────┘ │ └───────┘ │ │           │ │
+│  │  │   vCPU    └───────────┘ │      │   vCPU    └───────────┘ │           │ │
+│  │  └─────┬───────────────────┘      └─────┬───────────────────┘           │ │
+│  │        │                                │                               │ │
+│  │        │    Hypervisor.framework API    │                               │ │
+│  │        │  ┌─────────────────────────┐   │                               │ │
+│  │        └──►  hv_vm_create()         ◄───┘                               │ │
+│  │           │  hv_vm_map()            │                                   │ │
+│  │           │  hv_vcpu_create()       │                                   │ │
+│  │           │  hv_vcpu_run()          │                                   │ │
+│  │           │  hv_vcpu_get/set_reg()  │                                   │ │
+│  │           └────────────┬────────────┘                                   │ │
+│  └────────────────────────┼────────────────────────────────────────────────┘ │
+│                           │ system calls                                     │
+├───────────────────────────┼──────────────────────────────────────────────────┤
+│                           ▼                                                  │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │                     macOS Kernel (EL2 Hypervisor)                       │ │
+│  │                                                                         │ │
+│  │  Virtualized (per VM):              Not Virtualized by TinyVMM:         │ │
+│  │  ┌─────────────────────┐            ┌─────────────────────┐             │ │
+│  │  │ ✓ CPU (vCPU)        │            │ ✗ GPU               │             │ │
+│  │  │ ✓ RAM (GPA mapping) │            │ ✗ Storage (no disk) │             │ │
+│  │  │ ✓ System Registers  │            │ ✗ Network (no NIC)  │             │ │
+│  │  │ ✓ Exception Levels  │            │ ✗ USB               │             │ │
+│  │  │ ✓ Timers            │            │ ✗ Display           │             │ │
+│  │  │ ✓ Interrupts (GIC)  │            │ ✗ Audio             │             │ │
+│  │  └─────────────────────┘            └─────────────────────┘             │ │
+│  │                                                                         │ │
+│  │  Each VM gets isolated: vCPU state, page tables, trap handlers          │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────┘
+                                        │
+                                        ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                       Apple Silicon Hardware (M1/M2/M3/M4)                   │
+│                                                                              │
+│  ┌──────────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐     │
+│  │ ARM64 CPU Cores  │ │   Unified    │ │     GPU      │ │  Neural      │     │
+│  │                  │ │   Memory     │ │              │ │  Engine      │     │
+│  │ VHE (Virtualiz-  │ │              │ │ (not shared  │ │              │     │
+│  │ ation Host Ext.) │ │ (shared by   │ │  with guest) │ │ (host only)  │     │
+│  │                  │ │ host+guests) │ │              │ │              │     │
+│  │ EL0: Guest User  │ └──────────────┘ └──────────────┘ └──────────────┘     │
+│  │ EL1: Guest Kern  │                                                        │
+│  │ EL2: Hypervisor◄─── TinyVMM traps here on HVC, MMIO, exceptions           │
+│  └──────────────────┘                                                        │
+└──────────────────────────────────────────────────────────────────────────────┘
 
-What runs inside the VM (no guest OS!):
-┌─────────────────────────────────┐
-│   Just bare-metal ARM64 code:   │
-│   - Runs at EL1 (kernel mode)   │
-│   - No OS, no drivers, no libc  │
-│   - Communicates via HVC #0     │
-│   - Prints "Hello from VM!"     │
-└─────────────────────────────────┘
+What runs inside each VM (no guest OS!):
+┌─────────────────────────────────────┐
+│    Just bare-metal ARM64 code:      │
+│    - Runs at EL1 (kernel mode)      │
+│    - No OS, no drivers, no libc     │
+│    - Communicates via HVC #0        │
+│    - I/O only through hypercalls    │
+│    - Isolated from other VMs        │
+└─────────────────────────────────────┘
 ```
+
+## Key Concepts
+
+### Hypervisor vs VMM
+
+| Term | What it is | In this project |
+|------|------------|-----------------|
+| **Hypervisor** | System software that creates and manages VMs at the hardware level | macOS kernel + Hypervisor.framework (provided by Apple) |
+| **VMM (Virtual Machine Monitor)** | User-space program that controls a VM's lifecycle and handles its requests | TinyVMM (what we write) |
+
+The hypervisor provides the low-level capability; the VMM uses it to build a complete virtual environment.
+
+### Exception Levels (ARM64 Privilege Rings)
+
+ARM64 has 4 exception levels, similar to x86 ring levels:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ EL3: Secure Monitor    │ Secure firmware (not accessible)  │
+├─────────────────────────────────────────────────────────────┤
+│ EL2: Hypervisor        │ macOS hypervisor runs here        │
+│                        │ Traps guest exceptions (HVC, etc) │
+├─────────────────────────────────────────────────────────────┤
+│ EL1: Kernel            │ Guest code runs here              │
+│                        │ (our bare-metal code)             │
+├─────────────────────────────────────────────────────────────┤
+│ EL0: User              │ Guest user-space (unused by us)   │
+└─────────────────────────────────────────────────────────────┘
+        ▲ Lower privilege          Higher privilege ▲
+```
+
+TinyVMM's guest runs at EL1. When it executes `HVC #0`, the CPU traps to EL2 where macOS handles it and notifies our VMM.
+
+### vCPU (Virtual CPU)
+
+A vCPU is a software abstraction of a physical CPU core:
+
+- **State**: Program counter (PC), stack pointer (SP), general registers (X0-X30), system registers, CPSR
+- **Lifecycle**: Create → Configure → Run → Handle Exit → Run → ... → Destroy
+- **Scheduling**: The host OS schedules vCPUs like regular threads
+
+```c
+hv_vcpu_create(&vcpu, &exit_info, NULL);  // Create vCPU
+hv_vcpu_set_reg(vcpu, HV_REG_PC, 0x10000); // Set initial PC
+hv_vcpu_run(vcpu);                         // Run until exit
+```
+
+### VM Exit
+
+A VM exit occurs when guest execution must pause for the VMM to handle something:
+
+| Exit Cause | Example | VMM Response |
+|------------|---------|--------------|
+| **Hypercall (HVC)** | Guest wants to print a character | Read registers, perform action, resume |
+| **Memory fault** | Guest accessed unmapped address | Map memory or inject fault |
+| **System register access** | Guest read/wrote trapped register | Emulate the register |
+| **Interrupt** | Timer fired | Inject virtual interrupt |
+| **WFI/WFE** | Guest is idle, waiting | Yield CPU time |
+
+The exit-handle-resume loop is the core of any VMM:
+```
+while (running) {
+    hv_vcpu_run(vcpu);        // Guest runs...
+    handle_exit(exit_info);   // ...until exit, then handle it
+}
+```
+
+### Hypercall (HVC)
+
+A hypercall is the guest's way to request services from the VMM (like a syscall, but guest→VMM instead of user→kernel):
+
+```
+Guest (EL1)                         VMM (User-space)
+    │                                      │
+    │  MOV X0, #1      ; hypercall number  │
+    │  MOV X1, #'H'    ; argument          │
+    │  HVC #0          ; trap to EL2 ──────┼──► exit_info->reason = EXCEPTION
+    │                                      │    VMM reads X0, X1
+    │                  ◄───────────────────┼─── VMM calls putchar('H')
+    │  (continues)                         │    VMM advances PC, resumes
+```
+
+### Guest Physical Address (GPA) vs Host Virtual Address (HVA)
+
+| Address Type | Who sees it | Example |
+|--------------|-------------|---------|
+| **GPA** (Guest Physical) | Guest code | `0x10000` (where guest thinks code is) |
+| **HVA** (Host Virtual) | VMM process | `0x102b24000` (actual malloc'd memory) |
+
+The VMM maps HVA→GPA so the guest sees a contiguous address space starting at 0:
+
+```c
+void *host_mem = mmap(...);                              // HVA
+hv_vm_map(host_mem, 0, size, HV_MEMORY_READ | ...);      // Map to GPA 0
+// Guest sees: 0x0 - 0x100000
+// Host sees:  host_mem pointer
+```
+
+### VHE (Virtualization Host Extensions)
+
+VHE is an ARM64 feature that lets the host kernel run at EL2 (hypervisor level) instead of EL1. Benefits:
+
+- **No mode switch overhead** when the kernel needs hypervisor features
+- macOS uses VHE, so the kernel and hypervisor share EL2
+- Guest runs at EL1, isolated by hardware
 
 ## Requirements
 
@@ -180,34 +322,6 @@ switch (hypercall_num) {
 // Advance PC past HVC instruction
 hv_vcpu_set_reg(vcpu, HV_REG_PC, pc + 4);
 ```
-
-## Key Concepts
-
-### Guest Physical Address (GPA)
-
-The address space the guest sees. We map host memory to GPA 0, so the guest thinks it has RAM starting at address 0.
-
-### Exception Levels (EL)
-
-ARM64 has 4 exception levels:
-- **EL0**: User mode (applications)
-- **EL1**: Kernel mode (where our guest runs)
-- **EL2**: Hypervisor mode (handled by Apple's hypervisor)
-- **EL3**: Secure monitor (not available)
-
-### VM Exits
-
-The guest can't run forever - it "exits" to the VMM when:
-- It executes HVC (hypercall)
-- It accesses memory we haven't mapped
-- It accesses system registers we trap
-- The VMM explicitly stops it
-
-### ESR_EL2 (Exception Syndrome Register)
-
-When an exception occurs, this register tells us why:
-- **EC** (Exception Class): The type of exception (bits 31:26)
-- Other fields give additional details
 
 ## Hypercall Interface
 
