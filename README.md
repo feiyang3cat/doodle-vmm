@@ -1,6 +1,7 @@
 # DOODLE-VMM
 
 Learning and Hello World Project for Hypervisor/VMM/Sandbox Development.
+This project is co-authored with Claude Code.
 
 ## Table of Contents
 
@@ -109,12 +110,3 @@ See the [tinyvmm/](./tinyvmm/) folder for a minimal VMM implementation using mac
 
 ---
 
-## Contributors
-
-<!-- ALL-CONTRIBUTORS-LIST:START -->
-<table>
-  <tr>
-    <td align="center"><a href="https://github.com/claude"><img src="https://avatars.githubusercontent.com/u/203141299?v=4" width="100px;" alt=""/><br /><sub><b>Claude</b></sub></a><br />AI Pair Programmer</td>
-  </tr>
-</table>
-<!-- ALL-CONTRIBUTORS-LIST:END -->
