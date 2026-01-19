@@ -2,6 +2,18 @@
 
 Learning and Hello World Project for Hypervisor/VMM/Sandbox Development.
 
+## Table of Contents
+
+- [Chapter 1: Knowledge](#chapter-1-knowledge)
+  - [Key Terms](#key-terms)
+  - [Traditional vs Virtualization Stack](#traditional-vs-virtualization-stack)
+  - [Core Problems to Solve](#core-problems-to-solve)
+  - [Players in the Field](#players-in-the-field)
+  - [Hypervisor Paradigm Comparison](#hypervisor-paradigm-comparison)
+- [Chapter 2: Projects](#chapter-2-projects)
+  - [2.1 Learning the Firecracker Solution](#21-learning-the-firecracker-solution)
+  - [2.2 macOS Hello World - TinyVMM](#22-macos-hello-world---tinyvmm)
+
 ---
 
 ## Chapter 1: Knowledge
@@ -78,7 +90,7 @@ Managing multiple OSes on the same machine:
 | HW Support       | VT-x / AMD-V                   | VT-x (Intel) / ARM (Apple)    |
 | Isolation        | Process-level (strong)         | Sandbox-level (very strong)   |
 
-<img src="./assets/kvm-vs-hypervisor.jpg" alt="KVM vs Hypervisor.framework Comparison" width="600"/>
+<img src="./assets/kvm-vs-hypervisorframework.jpg" alt="KVM vs Hypervisor.framework Comparison" width="600"/>
 
 ---
 
