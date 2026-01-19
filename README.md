@@ -1,33 +1,34 @@
-# TinyVMM - A Minimal Hypervisor for macOS
+# DOODLE-VM
 
-A "Hello World" Virtual Machine Monitor (VMM) exploring how to create a tiny sandbox on macOS using Apple's Hypervisor.framework.
+Learning and Hello World Project for Hypervisor/VMM/Sandbox Development.
 
-
-## Context Knowledge
-
-### basic terms
+## Chpt-1: Knowledge
 
 **hodgepodge of terms**:
 Hypervisor, VMM, VM, GuestOS, BareMetal, MicroKernel, UniKernel, Monolithic Kernel, Hybrid Kernel
 Hypercalls, Systemcalls, Traps/Interrupts/Exceptions, Privilege Levels(mode/ring/exception level)
 
 **stacks**:
-| Traditional Stack                       | Virtualization Stack                              |
-| --------------------------------------- | ------------------------------------------------- |
-| Hardware                                | Hardware                                          |
-| OS (Kernel, e.g. Linux, macOS, Windows) | └── Hypervisor + VMM (often used interchangeably) |
-| Application                             | └── Virtual Machine (VM)                          |
-|                                         | └── Guest OS (e.g. Linux, Windows, etc.)          |
-| --------------------------------------- | ------------------------------------------------- |
-| Application                             | Application                                       |
-| ↓ syscall (trap to kernel)              | ↓ syscall (trap to kernel)                        |
-| OS / Kernel                             | Kernel (e.g. Guest OS)                            |
-| ↓ (directly on hardware)                | ↓ hypercall (trap to hypervisor)                  |
-| Hardware (CPU / Memory / Devices)       | Hypervisor                                        |
-|                                         | ↓ hardware instructions                           |
-|                                         | CPU / Memory / Devices                            |
-
-### basic problems to solve
+```
+Traditional Stack:                   Virtualization Stack:
+┌─────────────┐                      ┌─────────────┐
+│ Application │                      │ Application │
+└─────┬───────┘                      └─────┬───────┘
+      │ (syscall)                           │ (syscall)
+┌─────▼───────┐                      ┌─────▼─────────────┐
+│ OS/Kernel   │                      │ Guest OS/Kernel   │
+└─────┬───────┘                      └─────┬─────────────┘
+      │ (direct HW access)                 │ (hypercall)
+┌─────▼───────┐                      ┌─────▼─────────────┐
+│ Hardware    │                      │ Hypervisor + VMM  │
+│ (CPU/Mem)   │                      └─────┬─────────────┘
+└─────────────┘                            │ (HW instructions)
+                                   ┌───────▼────────────┐
+                                   │ CPU / Memory /     │
+                                   │ Devices (Hardware) │
+                                   └────────────────────┘
+```
+**basic problems to solve**:
 
 The management of multiple OSes in the same machine:
 - thread related
@@ -36,14 +37,16 @@ The management of multiple OSes in the same machine:
 - Security
 - Performance
 
-### In-depth Reading
-    - [KVM paper](https://www.kernel.org/doc/ols/2007/ols2007v1-pages-225-230.pdf)
-    - [Firecracker paper](https://www.usenix.org/system/files/nsdi20-paper-wang-yonggang.pdf) (nsdi20)
-    - [MacOS Hypervisor](https://developer.apple.com/documentation/hypervisor)
-    - [Xen] (https://dl.acm.org/doi/10.1145/945445.945462)
-    - Others: Disco, Qemu, Wine
+**players in the game**
+firecracker, kvm, qemu, wine, xen, macos-hypervisor-framework
+- firecracker: lightweight VM manager, and IO virtualization/emulation -> on top of kvm
+- qemu: emulator and virtualizer -> on top of linux kernel, interchanged by firecracker
+- kvm: a virtualization infrastructure for Linux -> on top of linux kernel
+- wine: a runtime compatibility layer for running Windows applications on Linux -> on top of linux kernel
+- macos-hypervisor-framework: a virtualization infrastructure for macOS -> on top of macos kernel
 
-### HYPERVISOR PARADIGM
+
+**HYPERVISOR PARADIGM**:
 | Category         | Linux KVM                      | macOS Hypervisor            |
 | ---------------- | ------------------------------ | --------------------------- |
 | Architecture     | OS as Hyperversior, Monolithic | User Space API              |
@@ -53,12 +56,20 @@ The management of multiple OSes in the same machine:
 | HW Support       | VT-x / AMD-V                   | VT-x (Intel) / ARM (Apple)  |
 | Isolation        | Process-level (strong)         | Sandbox-level (very strong) |
 
-![KVM vs Hypervisor.framework Comparison](kvm-vs-hypervisor.jpg)
+<img src="./assets/kvm-vs-hypervisor.jpg" alt="KVM vs Hypervisor.framework Comparison" width="600"/>
 
 
+## Chpt-2: Project
 
+### 2.1) Learning the FireCracker Solution
 
-## Architecture Overview
+Reading:
+    - [KVM paper](https://www.kernel.org/doc/ols/2007/ols2007v1-pages-225-230.pdf)
+    - [Firecracker paper](https://www.usenix.org/system/files/nsdi20-paper-wang-yonggang.pdf) (nsdi20)
+
+### 2.2) MacoOS Hello World - tinyvmm
+
+**Architecture Overview**:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
@@ -137,56 +148,21 @@ What runs inside each VM (no guest OS!):
 └─────────────────────────────────────┘
 ```
 
-## Key Concepts
 
-### Hypervisor vs VMM
-
-| Term                              | What it is                                                                 | In this project                                         |
-| --------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Hypervisor**                    | System software that creates and manages VMs at the hardware level         | macOS kernel + Hypervisor.framework (provided by Apple) |
-| **VMM (Virtual Machine Monitor)** | User-space program that controls a VM's lifecycle and handles its requests | TinyVMM (what we write)                                 |
-
-The hypervisor provides the low-level capability; the VMM uses it to build a complete virtual environment.
-
-### Exception Levels (ARM64 Privilege Rings)
-
-ARM64 has 4 exception levels, similar to x86 ring levels:
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│ EL3: Secure Monitor    │ Secure firmware (not accessible)  │
-├─────────────────────────────────────────────────────────────┤
-│ EL2: Hypervisor        │ macOS hypervisor runs here        │
-│                        │ Traps guest exceptions (HVC, etc) │
-├─────────────────────────────────────────────────────────────┤
-│ EL1: Kernel            │ Guest code runs here              │
-│                        │ (our bare-metal code)             │
-├─────────────────────────────────────────────────────────────┤
-│ EL0: User              │ Guest user-space (unused by us)   │
-└─────────────────────────────────────────────────────────────┘
-        ▲ Lower privilege          Higher privilege ▲
-```
-
-TinyVMM's guest runs at EL1. When it executes `HVC #0`, the CPU traps to EL2 where macOS handles it and notifies our VMM.
-
-### vCPU (Virtual CPU)
+**VM related concepts**:
 
 A vCPU is a software abstraction of a physical CPU core:
-
 - **State**: Program counter (PC), stack pointer (SP), general registers (X0-X30), system registers, CPSR
 - **Lifecycle**: Create → Configure → Run → Handle Exit → Run → ... → Destroy
 - **Scheduling**: The host OS schedules vCPUs like regular threads
-
 ```c
 hv_vcpu_create(&vcpu, &exit_info, NULL);  // Create vCPU
 hv_vcpu_set_reg(vcpu, HV_REG_PC, 0x10000); // Set initial PC
 hv_vcpu_run(vcpu);                         // Run until exit
 ```
 
-### VM Exit
 
-A VM exit occurs when guest execution must pause for the VMM to handle something:
-
+A VM exit is an interrupt that occurs when guest execution must pause for the VMM to handle something:
 | Exit Cause                 | Example                           | VMM Response                           |
 | -------------------------- | --------------------------------- | -------------------------------------- |
 | **Hypercall (HVC)**        | Guest wants to print a character  | Read registers, perform action, resume |
@@ -203,10 +179,7 @@ while (running) {
 }
 ```
 
-### Hypercall (HVC)
-
 A hypercall is the guest's way to request services from the VMM (like a syscall, but guest→VMM instead of user→kernel):
-
 ```
 Guest (EL1)                         VMM (User-space)
     │                                      │
@@ -218,8 +191,7 @@ Guest (EL1)                         VMM (User-space)
     │  (continues)                         │    VMM advances PC, resumes
 ```
 
-### Guest Physical Address (GPA) vs Host Virtual Address (HVA)
-
+Guest Physical Address (GPA) vs Host Virtual Address (HVA)
 | Address Type             | Who sees it | Example                                |
 | ------------------------ | ----------- | -------------------------------------- |
 | **GPA** (Guest Physical) | Guest code  | `0x10000` (where guest thinks code is) |
@@ -234,21 +206,14 @@ hv_vm_map(host_mem, 0, size, HV_MEMORY_READ | ...);      // Map to GPA 0
 // Host sees:  host_mem pointer
 ```
 
-### VHE (Virtualization Host Extensions)
-
+VHE (Virtualization Host Extensions)*
 VHE is an ARM64 feature that lets the host kernel run at EL2 (hypervisor level) instead of EL1. Benefits:
-
 - **No mode switch overhead** when the kernel needs hypervisor features
 - macOS uses VHE, so the kernel and hypervisor share EL2
 - Guest runs at EL1, isolated by hardware
 
-## Requirements
 
-- macOS 11.0 (Big Sur) or later
-- Apple Silicon (M1/M2/M3/M4)
-- Xcode Command Line Tools (`xcode-select --install`)
-
-## Project Structure
+**Project Structure**:
 
 ```
 .
